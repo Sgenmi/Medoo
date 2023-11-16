@@ -789,12 +789,12 @@ class Medoo
             $isArrayValue = is_array($value);
 
             if (!$isIntKey && $isArrayValue && $root && count(array_keys($columns)) === 1) {
-                $stack[] = $this->columnQuote($key);
+                $stack[] = $this->columnQuote((string)$key);
                 $stack[] = $this->columnPush($value, $map, false, $isJoin);
             } elseif ($isArrayValue) {
                 $stack[] = $this->columnPush($value, $map, false, $isJoin);
             } elseif (!$isIntKey && $raw = $this->buildRaw($value, $map)) {
-                preg_match('/(?<column>[\p{L}_][\p{L}\p{N}@$#\-_\.]*)(\s*\[(?<type>(String|Bool|Int|Number))\])?/u', $key, $match);
+                preg_match('/(?<column>[\p{L}_][\p{L}\p{N}@$#\-_\.]*)(\s*\[(?<type>(String|Bool|Int|Number))\])?/u', (string)$key, $match);
                 $stack[] = "{$raw} AS {$this->columnQuote($match['column'])}";
             } elseif ($isIntKey && is_string($value)) {
                 if ($isJoin && strpos($value, '*') !== false) {
@@ -1025,7 +1025,7 @@ class Medoo
 
         if (is_array($where)) {
             $conditions = array_diff_key($where, array_flip(
-                ['GROUP', 'ORDER', 'HAVING', 'LIMIT', 'LIKE', 'MATCH']
+                ['GROUP', 'ORDER', 'HAVING', 'LIMIT', 'LIKE', 'MATCH','INDEX','LOCK']
             ));
 
             if (!empty($conditions)) {
@@ -1226,7 +1226,26 @@ class Medoo
             $column = $this->columnPush($columns, $map, true, $isJoin);
         }
 
-        return 'SELECT ' . $column . ' FROM ' . $tableQuery . $this->whereClause($where, $map);
+        //force index
+        if(!empty($where['INDEX']) && $this->type=='mysql'){
+            if($this->isRaw($where['INDEX'])){
+                $forceIndex= $this->buildRaw($where['INDEX'],$map);
+            }else{
+                $forceIndex = $where['INDEX'];
+            }
+            if($isJoin){
+                $tableQuery = str_replace(sprintf('%s ',$table),sprintf('%s FORCE INDEX(`%s`) ',$table,$forceIndex),$tableQuery);
+            }else{
+                $tableQuery .=sprintf(' FORCE INDEX(%s)',$forceIndex);
+            }
+        }
+        $whereClause = $this->whereClause($where, $map);
+
+        if(!empty($where['LOCK']) && $this->type=='mysql'){
+            $whereClause.= " ". $where['LOCK'];
+        }
+
+        return 'SELECT ' . $column . ' FROM ' . $tableQuery . $whereClause;
     }
 
     /**
